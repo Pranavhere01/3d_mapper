@@ -1,0 +1,62 @@
+Metadata-Version: 2.1
+Name: 3d-model-viewer
+Version: 1.0.0
+Summary: A 3D model viewer with point marking capabilities
+Home-page: https://github.com/yourusername/3d-model-viewer
+Author: Your Name
+Author-email: your.email@example.com
+Project-URL: Bug Reports, https://github.com/yourusername/3d-model-viewer/issues
+Project-URL: Source, https://github.com/yourusername/3d-model-viewer
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Science/Research
+Classifier: Topic :: Scientific/Engineering :: Visualization
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Environment :: X11 Applications :: Qt
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: PyQt6>=6.4.0
+Requires-Dist: PyOpenGL>=3.1.6
+Requires-Dist: numpy>=1.24.0
+Requires-Dist: trimesh>=3.9.0
+Requires-Dist: scipy>=1.10.0
+Requires-Dist: networkx>=2.8.0
+Requires-Dist: Pillow>=9.3.0
+Requires-Dist: matplotlib>=3.6.0
+Requires-Dist: pytest>=7.3.0
+Requires-Dist: black>=22.3.0
+Requires-Dist: flake8>=6.0.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.3.0; extra == "dev"
+Requires-Dist: black>=22.3.0; extra == "dev"
+Requires-Dist: flake8>=6.0.0; extra == "dev"
+Requires-Dist: mypy>=1.0.0; extra == "dev"
+Provides-Extra: docs
+Requires-Dist: sphinx>=4.0.0; extra == "docs"
+Requires-Dist: sphinx-rtd-theme>=1.0.0; extra == "docs"
+
+# 3D Model Viewer Pro
+
+A professional 3D model viewer with point marking and coordinate mapping capabilities.
+
+## Features
+
+- Load and view 3D models (OBJ, STL, PLY formats)
+- Interactive 3D navigation
+- Point marking with coordinates
+- Save and load point data
+- Modern dark theme interface
+- Coordinate system visualization
+- Multiple view modes (Solid, Wireframe, Points)
+
+## Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/3d-model-viewer
+cd 3d-model-viewer
