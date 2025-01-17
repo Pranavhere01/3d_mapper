@@ -14,3 +14,8 @@ matplotlib>=3.6.0
 pytest>=7.3.0
 black>=22.3.0
 flake8>=6.0.0
+
+ 
+PyOpenGL-accelerate>=3.1.6
+PyQt6>=6.4.0
+numpy>=1.21.0

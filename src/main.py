@@ -2,8 +2,8 @@ import sys
 import os
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QIcon
-from src.ui.main_window import MainWindow
-from src.utils.constants import APP_NAME, APP_VERSION
+from ui.main_window import MainWindow
+from utils.constants import APP_NAME, APP_VERSION
 
 def setup_environment():
     """Set up environment variables and paths."""

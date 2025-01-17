@@ -25,11 +25,17 @@ QPushButton:pressed {
     background-color: #2d2d2d;
 }
 
+QPushButton:checked {
+    background-color: #505050;
+    border: 1px solid #6a6a6a;
+}
+
 QGroupBox {
     color: #e0e0e0;
     border: 1px solid #3d3d3d;
     margin-top: 12px;
     font-weight: bold;
+    padding-top: 20px;
 }
 
 QGroupBox::title {
@@ -54,6 +60,7 @@ QTextEdit {
     color: #e0e0e0;
     border: 1px solid #3d3d3d;
     border-radius: 4px;
+    padding: 5px;
 }
 
 QComboBox {
@@ -66,12 +73,6 @@ QComboBox {
 
 QComboBox::drop-down {
     border: none;
-}
-
-QComboBox::down-arrow {
-    image: url(:/icons/down_arrow.png);
-    width: 12px;
-    height: 12px;
 }
 
 QSpinBox {
@@ -101,5 +102,34 @@ QScrollBar:vertical {
     margin: 15px 3px 15px 3px;
     border: 1px solid #3d3d3d;
     border-radius: 4px;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #4d4d4d;
+    min-height: 20px;
+    border-radius: 2px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #5d5d5d;
+}
+
+/* Coordinate label styling */
+CoordinateLabel {
+    background-color: rgba(0, 0, 0, 0.3);
+    color: #e0e0e0;
+    padding: 8px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 12px;
+}
+
+/* Point marking mode indicator */
+QPushButton#markingEnabled {
+    background-color: #4CAF50;
+}
+
+QPushButton#markingEnabled:checked {
+    background-color: #388E3C;
 }
 """

@@ -1,4 +1,6 @@
+MANIFEST.in
 README.md
+requirements.txt
 setup.py
 3d_model_viewer.egg-info/PKG-INFO
 3d_model_viewer.egg-info/SOURCES.txt
@@ -13,7 +15,9 @@ src/main.py
 src/model_handler.py
 src/point_manager.py
 src/viewer.py
+src/ui/__init__.py
 src/ui/main_window.py
 src/ui/styles.py
+src/utils/__init__.py
 src/utils/constants.py
 src/utils/helpers.py
