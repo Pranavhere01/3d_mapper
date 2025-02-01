@@ -71,7 +71,7 @@ class PointManager:
         format_point_summary: Format point summary for display
         clear_points: Clear all points
     The class provides comprehensive point management functionality for 3D mapping applications
-    with support for surface analysis, sensor configuration, and data persistence.
+    with support for surface analysis, sensor configuration, and data persistence."""
     def __init__(self):
         self.points = {}
         self.current_id = 0
