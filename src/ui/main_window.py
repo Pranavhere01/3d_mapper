@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QFileDialog, QMessageBox, QLabel,
     QSpinBox, QGroupBox, QScrollArea, QSplitter,
-    QTextEdit, QColorDialog, QComboBox
+    QTextEdit, QColorDialog, QComboBox, QDoubleSpinBox
 )
 from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtGui import QColor
@@ -93,14 +93,30 @@ class MainWindow(QMainWindow):
         view_group.setLayout(view_layout)
         layout.addWidget(view_group)
 
-        # Point Settings Group
+        # Point Settings Group - SINGLE IMPLEMENTATION
         point_group = QGroupBox("Point Settings")
         point_layout = QVBoxLayout()
+
+        # Point size control
         point_layout.addWidget(QLabel("Point Size:"))
         self.point_size_spin = QSpinBox()
         self.point_size_spin.setRange(1, 20)
         self.point_size_spin.setValue(8)
         point_layout.addWidget(self.point_size_spin)
+
+        # Coverage radius control
+        point_layout.addWidget(QLabel("Coverage Radius (m):"))
+        self.coverage_radius_spin = QDoubleSpinBox()
+        self.coverage_radius_spin.setRange(0.1, 10.0)
+        self.coverage_radius_spin.setSingleStep(0.1)
+        self.coverage_radius_spin.setValue(2.0)
+        point_layout.addWidget(self.coverage_radius_spin)
+
+        # Coverage visibility toggle
+        self.show_coverage_btn = QPushButton("Show Coverage Area")
+        self.show_coverage_btn.setCheckable(True)
+        point_layout.addWidget(self.show_coverage_btn)
+
         point_group.setLayout(point_layout)
         layout.addWidget(point_group)
 
@@ -249,7 +265,19 @@ class MainWindow(QMainWindow):
                     point_text = self.point_manager.format_point_summary(point_id)
                     point_label.setText(point_text)
                 break
+    def update_coverage_radius(self, value):
+        """Update coverage radius for selected point."""
+        if self.point_manager.selected_point is not None:
+            self.point_manager.update_point_coverage(
+                self.point_manager.selected_point, 
+                value
+            )
+            self.viewer.update()
 
+    def toggle_coverage_display(self, show):
+        """Toggle coverage area visualization."""
+        self.viewer.show_coverage = show
+        self.viewer.update()
     def setup_connections(self):
         """Set up signal connections."""
         self.load_button.clicked.connect(self.load_model)
@@ -261,15 +289,22 @@ class MainWindow(QMainWindow):
         self.bg_color_btn.clicked.connect(self.change_background_color)
         self.point_color_btn.clicked.connect(self.change_point_color)
         self.point_size_spin.valueChanged.connect(self.viewer.set_point_size)
+
+
         self.viewer.point_added.connect(self.add_point)
         self.viewer.coordinate_updated.connect(self.update_coordinates)
-
+        self.coverage_radius_spin.valueChanged.connect(self.update_coverage_radius)
+        self.show_coverage_btn.toggled.connect(self.toggle_coverage_display)
+        
+        # Connect notes update
+        self.notes_edit.textChanged.connect(self.update_point_notes)
+    # Update connections for sensors
         for sensor_type, combo in self.sensor_combos.items():
             combo.currentTextChanged.connect(
                 lambda value, sensor=sensor_type: self.update_point_sensor(sensor, value)
             )
-        # Connect notes update
-        self.notes_edit.textChanged.connect(self.update_point_notes)
+    # Add these lines after existing connections:
+   
 
     # Include all other methods from the original implementation...
     # (load_model, save_points, toggle_point_marking, etc.)
@@ -437,6 +472,9 @@ class MainWindow(QMainWindow):
         self.grid_button.setEnabled(enabled)
         self.model_color_btn.setEnabled(enabled)
         self.view_mode_combo.setEnabled(enabled)
+        # Add this line:
+
+        self.show_coverage_btn.setEnabled(enabled)
 
     def change_view_mode(self, mode):
         """Change the view mode of the model."""
@@ -451,30 +489,62 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage("Point marking disabled")
             self.coord_label.setText("Coordinates: (--, --, --)")
+        
 
     @pyqtSlot(tuple)
     def update_coordinates(self, coords):
-        """Update coordinate display."""
+        """Enhanced coordinate display with surface information."""
         if coords[0] == -1:
             self.coord_label.setText("Coordinates: (--, --, --)")
         else:
             model_coords = self.model_handler.transform_to_model_space(coords)
+            
+            # Get surface information
+            surface_normal = self.model_handler.get_surface_normal_at_point(coords)
+            surface_type = self.model_handler.get_surface_type(coords, surface_normal) if surface_normal is not None else "unknown"
+            
+            # Update coordinate label
             self.coord_label.setText(
-                f"Coordinates: ({model_coords[0]:.2f}, {model_coords[1]:.2f}, {model_coords[2]:.2f})"
+                f"Coordinates (m): ({model_coords[0]:.2f}, {model_coords[1]:.2f}, {model_coords[2]:.2f})"
             )
 
+    @pyqtSlot(tuple, str)
     @pyqtSlot(tuple, str)
     def add_point(self, coordinates, timestamp):
         """Add a new point."""
         point_id = self.point_manager.add_point(coordinates, timestamp)
         if point_id is not None:
+            # Create and add point widget
             point_widget = self.create_point_widget(point_id, coordinates)
             self.points_layout.addWidget(point_widget)
+            
+            # Update point info display
             point_data = self.point_manager.get_point(point_id)
             self.update_point_info(point_data)
+            
+            # Select the newly added point
+            self.select_point(point_id)
+            
+            # Enable save button and update status
             self.save_points_button.setEnabled(True)
             self.statusBar().showMessage(f"Added Point {point_id}", 2000)
+            
+            # Force update of the points list
+            self.points_layout.update()
+            self.points_container.update()
+    def update_coverage_radius(self, value):
+        """Update coverage radius for selected point."""
+        if self.point_manager.selected_point is not None:
+            self.point_manager.update_point_coverage(
+                self.point_manager.selected_point, 
+                value
+            )
+            self.viewer.update()
 
+    def toggle_coverage_display(self, show):
+        """Toggle coverage area visualization."""
+        self.viewer.show_coverage = show
+        self.viewer.update()
     def update_point_info(self, point_data):
         """Update point information display."""
         if point_data:

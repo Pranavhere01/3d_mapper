@@ -47,6 +47,10 @@ class ModelViewer(QOpenGLWidget):
         self.grid_size = 1.0
         self.grid_divisions = 10
         
+        self.show_coverage = True
+        self.coverage_radius = 0.5  # meters
+        self.coverage_opacity = 0.1
+        self.coverage_color = (0.0, 0.7, 1.0, 0.1)
         # Point marking
         self.marking_enabled = False
         self.hover_point = None
@@ -66,60 +70,81 @@ class ModelViewer(QOpenGLWidget):
                 self.point_manager.set_model_handler(model_handler)
         except Exception as e:
             print(f"Error setting handlers: {e}")
-
     def initializeGL(self):
         """Initialize OpenGL settings."""
         try:
-            # Set background color
+            # Basic OpenGL settings
             glClearColor(*self.bg_color)
-            
-            # Enable depth testing
             glEnable(GL_DEPTH_TEST)
             glDepthFunc(GL_LESS)
             
-            # Enable lighting
-            glEnable(GL_LIGHTING)
-            glEnable(GL_LIGHT0)
+            # Enable smooth shading
             glShadeModel(GL_SMOOTH)
             
-            # Enable color material
+            # Enable blending for transparency
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+            
+            # Set up projection matrix
+            glMatrixMode(GL_PROJECTION)
+            glLoadIdentity()
+            aspect = self.width() / max(1, self.height())
+            gluPerspective(45.0, aspect, 0.1, 1000.0)
+            
+            # Set up modelview matrix with initial camera position
+            glMatrixMode(GL_MODELVIEW)
+            glLoadIdentity()
+            glTranslatef(0, 0, -10)
+            
+            # Lighting setup
+            glEnable(GL_LIGHTING)
+            glEnable(GL_LIGHT0)
             glEnable(GL_COLOR_MATERIAL)
             glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
             
-            # Configure point rendering
-            glEnable(GL_POINT_SMOOTH)
-            glHint(GL_POINT_SMOOTH_HINT, GL_NICEST)
-            
-            # Set up light
-            glLightfv(GL_LIGHT0, GL_POSITION, [1, 1, 1, 0])
+            # Configure light properties
+            glLightfv(GL_LIGHT0, GL_POSITION, [1, 1, 1, 0])  # Directional light
             glLightfv(GL_LIGHT0, GL_AMBIENT, [0.2, 0.2, 0.2, 1.0])
             glLightfv(GL_LIGHT0, GL_DIFFUSE, [0.8, 0.8, 0.8, 1.0])
+            
+            # Enable point smoothing
+            glEnable(GL_POINT_SMOOTH)
+            glHint(GL_POINT_SMOOTH_HINT, GL_NICEST)
             
             print("OpenGL initialized successfully")
         except Exception as e:
             print(f"Error initializing OpenGL: {e}")
+
     def resizeGL(self, width, height):
         """Handle window resize events."""
         try:
-            # Prevent divide by zero
+            # Ensure valid dimensions
             height = max(1, height)
             width = max(1, width)
             
-            # Set viewport to full window size
+            # Update viewport
             glViewport(0, 0, width, height)
             
-            # Set up perspective projection
+            # Update projection matrix
             glMatrixMode(GL_PROJECTION)
             glLoadIdentity()
             aspect = width / float(height)
             gluPerspective(45.0, aspect, 0.1, 1000.0)
             
-            # Reset modelview matrix
+            # Restore modelview matrix
             glMatrixMode(GL_MODELVIEW)
             glLoadIdentity()
+            glTranslatef(0, 0, -10)  # Maintain camera position
+            
+            # Apply current transformations
+            glTranslatef(*self.translation)
+            glRotatef(self.rotation[0], 1, 0, 0)
+            glRotatef(self.rotation[1], 0, 1, 0)
+            glRotatef(self.rotation[2], 0, 0, 1)
+            glScalef(self.scale, self.scale, self.scale)
+            
         except Exception as e:
             print(f"Error in resizeGL: {e}")
-
     def paintGL(self):
         """Render the scene."""
         try:
@@ -198,30 +223,31 @@ class ModelViewer(QOpenGLWidget):
 
 
     def get_ray_from_screen(self, x, y):
-        """Convert screen coordinates to ray for picking."""
+        """Convert screen coordinates to world ray."""
         try:
             viewport = glGetIntegerv(GL_VIEWPORT)
             modelview = glGetDoublev(GL_MODELVIEW_MATRIX)
             projection = glGetDoublev(GL_PROJECTION_MATRIX)
             
-            # Flip y coordinate (OpenGL uses bottom-left origin)
+            # Flip y coordinate
             y = viewport[3] - y
             
-            # Get unprojected points
-            near_point = np.array(gluUnProject(x, y, 0.0, modelview, projection, viewport))
-            far_point = np.array(gluUnProject(x, y, 1.0, modelview, projection, viewport))
+            # Get near and far points in world space
+            near = gluUnProject(x, y, 0.0, modelview, projection, viewport)
+            far = gluUnProject(x, y, 1.0, modelview, projection, viewport)
             
             # Calculate ray direction
-            ray_dir = far_point - near_point
-            ray_dir = ray_dir / np.linalg.norm(ray_dir)
+            near = np.array(near)
+            far = np.array(far)
+            direction = far - near
+            direction = direction / np.linalg.norm(direction)
             
-            return near_point, ray_dir
-                
+            return near, direction
         except Exception as e:
-            print(f"Error getting ray: {e}")
+            print(f"Error creating ray: {e}")
             return None, None
     def get_3d_coordinates(self, x, y):
-        """Get 3D coordinates using ray casting."""
+        """Get precise 3D coordinates on model surface using enhanced ray casting."""
         try:
             if not self.model_handler or not self.model_handler.is_loaded:
                 return None
@@ -231,81 +257,184 @@ class ModelViewer(QOpenGLWidget):
             if ray_start is None:
                 return None
 
+            # Get model data
             vertices = self.model_handler.get_vertices()
             faces = self.model_handler.get_faces()
             
-            min_dist = float('inf')
-            closest_point = None
-            
-            # Transform ray to model space
+            # Transform ray to model space for more accurate intersection testing
             modelview = glGetDoublev(GL_MODELVIEW_MATRIX)
             inv_modelview = np.linalg.inv(modelview)
             
+            # Transform ray start and direction to model space
             ray_start_model = np.dot(inv_modelview, np.append(ray_start, 1.0))[:3]
             ray_dir_model = np.dot(inv_modelview[:3, :3], ray_dir)
             ray_dir_model = ray_dir_model / np.linalg.norm(ray_dir_model)
 
-            for face in faces:
+            min_dist = float('inf')
+            closest_point = None
+            closest_normal = None
+            EPSILON = 1e-7
+
+            # Check each face for intersection
+            for face_idx, face in enumerate(faces):
                 triangle = [vertices[i] for i in face]
-                intersection = self.ray_triangle_intersection(ray_start_model, ray_dir_model, triangle)
+                v0, v1, v2 = [np.array(v, dtype=np.float64) for v in triangle]
                 
-                if intersection is not None:
+                # Calculate triangle normal
+                edge1 = v1 - v0
+                edge2 = v2 - v0
+                normal = np.cross(edge1, edge2)
+                normal_length = np.linalg.norm(normal)
+                
+                # Skip degenerate triangles
+                if normal_length < EPSILON:
+                    continue
+                    
+                normal = normal / normal_length
+                
+                # Skip if ray is parallel to triangle
+                d = np.dot(normal, ray_dir_model)
+                if abs(d) < EPSILON:
+                    continue
+                    
+                # Calculate intersection distance
+                D = -np.dot(normal, v0)
+                t = -(np.dot(normal, ray_start_model) + D) / d
+                
+                # Skip if intersection is behind ray origin
+                if t < 0:
+                    continue
+                    
+                # Calculate intersection point
+                intersection = ray_start_model + t * ray_dir_model
+                
+                # Check if point is inside triangle using optimized barycentric coordinates
+                edge3 = v2 - v1
+                p = intersection - v0
+                
+                # Calculate dot products for barycentric coordinates
+                dot00 = np.dot(edge1, edge1)
+                dot01 = np.dot(edge1, edge2)
+                dot02 = np.dot(edge1, p)
+                dot11 = np.dot(edge2, edge2)
+                dot12 = np.dot(edge2, p)
+                
+                # Calculate barycentric coordinates
+                denom = dot00 * dot11 - dot01 * dot01
+                if abs(denom) < EPSILON:
+                    continue
+                    
+                u = (dot11 * dot02 - dot01 * dot12) / denom
+                v = (dot00 * dot12 - dot01 * dot02) / denom
+                
+                # Check if point is inside triangle
+                if (u >= -EPSILON and v >= -EPSILON and (u + v) <= 1 + EPSILON):
                     dist = np.linalg.norm(intersection - ray_start_model)
                     if dist < min_dist:
                         min_dist = dist
                         closest_point = intersection
+                        closest_normal = normal
 
             if closest_point is not None:
                 # Transform back to world space
                 closest_point_world = np.dot(modelview[:3, :3], closest_point) + modelview[:3, 3]
-                return tuple(float(x) for x in closest_point_world)
                 
+                # Add small offset to prevent z-fighting
+                if closest_normal is not None:
+                    normal_world = np.dot(modelview[:3, :3], closest_normal)
+                    closest_point_world += normal_world * 0.0001
+                
+                return tuple(float(x) for x in closest_point_world)
+
             return None
-            
+                
         except Exception as e:
             print(f"Error getting 3D coordinates: {e}")
             return None
-       
 
-    def ray_triangle_intersection(self, ray_origin, ray_dir, triangle):
-        """Calculate ray-triangle intersection using Möller–Trumbore algorithm."""
+    def draw_hover_point(self):
+        """Draw hover point preview with surface normal indication."""
+        if self.hover_point is None:
+            return
+
         try:
-            EPSILON = 1e-7
-            v0, v1, v2 = [np.array(v, dtype=np.float64) for v in triangle]
+            glPushAttrib(GL_ALL_ATTRIB_BITS)
+            glDisable(GL_LIGHTING)
+            
+            # Draw cursor crosshair at exact intersection point
+            screen_pos = self.world_to_screen(self.hover_point)
+            if screen_pos:
+                painter = QPainter(self)
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                painter.setPen(QColor(0, 255, 0))
+                x, y = screen_pos
+                size = 10
+                
+                # Draw crosshair
+                painter.drawLine(x - size, y, x + size, y)
+                painter.drawLine(x, y - size, x, y + size)
+                
+                # Draw circle to indicate surface point
+                painter.drawEllipse(x - size//2, y - size//2, size, size)
+                
+                # Draw coordinates
+                if self.use_model_coordinates:
+                    coords = self.model_handler.transform_to_model_space(self.hover_point)
+                else:
+                    coords = self.hover_point
+                text = f"({coords[0]:.2f}, {coords[1]:.2f}, {coords[2]:.2f})"
+                painter.drawText(x + 15, y - 15, text)
+                painter.end()
+
+            # Draw hover sphere
+            glEnable(GL_LIGHTING)
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+            glColor4f(0.0, 1.0, 0.0, 0.6)  # Semi-transparent green
+            
+            # Draw smaller sphere for precise point indication
+            self.draw_sphere(self.hover_point, 0.01)
+            
+            glPopAttrib()
+
+        except Exception as e:
+            print(f"Error drawing hover point: {e}")
+
+    def ray_triangle_intersection(self, ray_origin, ray_direction, triangle):
+        """Möller–Trumbore intersection algorithm."""
+        try:
+            EPSILON = 1e-6
+            v0, v1, v2 = [np.array(v) for v in triangle]
             
             edge1 = v1 - v0
             edge2 = v2 - v0
+            h = np.cross(ray_direction, edge2)
+            a = np.dot(edge1, h)
             
-            pvec = np.cross(ray_dir, edge2)
-            det = np.dot(edge1, pvec)
-            
-            # Check if ray is parallel to triangle
-            if abs(det) < EPSILON:
+            if abs(a) < EPSILON:  # Ray parallel to triangle
                 return None
                 
-            inv_det = 1.0 / det
-            tvec = ray_origin - v0
-            u = np.dot(tvec, pvec) * inv_det
+            f = 1.0 / a
+            s = ray_origin - v0
+            u = f * np.dot(s, h)
             
             if u < 0.0 or u > 1.0:
                 return None
                 
-            qvec = np.cross(tvec, edge1)
-            v = np.dot(ray_dir, qvec) * inv_det
+            q = np.cross(s, edge1)
+            v = f * np.dot(ray_direction, q)
             
             if v < 0.0 or u + v > 1.0:
                 return None
                 
-            t = np.dot(edge2, qvec) * inv_det
-            
+            t = f * np.dot(edge2, q)
             if t > EPSILON:
-                intersection = ray_origin + ray_dir * t
-                return intersection
+                return ray_origin + ray_direction * t
                 
             return None
             
         except Exception as e:
-            print(f"Error in ray-triangle intersection: {e}")
+            print(f"Error in triangle intersection: {e}")
             return None
     def toggle_grid(self, show):
         """Toggle grid visibility."""
@@ -326,7 +455,7 @@ class ModelViewer(QOpenGLWidget):
             print(f"Error toggling point marking: {e}")
 
     def draw_grid(self):
-        """Draw grid aligned with model."""
+        """Draw enhanced grid with coordinate labels."""
         if not self.model_handler or not self.model_handler.is_loaded:
             return
 
@@ -336,70 +465,197 @@ class ModelViewer(QOpenGLWidget):
             glEnable(GL_BLEND)
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
             
-            glColor4f(*self.grid_color)
-            glLineWidth(1.0)
-
             bounds = self.model_handler.get_model_bounds()
-            if bounds:
-                size = max(bounds['size']) * 1.2
-                step = size / self.grid_divisions
-
-                glBegin(GL_LINES)
-                for i in range(-self.grid_divisions, self.grid_divisions + 1):
-                    # X lines
-                    glVertex3f(i * step, 0, -size)
-                    glVertex3f(i * step, 0, size)
-                    # Z lines
-                    glVertex3f(-size, 0, i * step)
-                    glVertex3f(size, 0, i * step)
-                glEnd()
-
+            if not bounds:
+                return
+                
+            # Calculate grid dimensions
+            model_center = bounds['center']
+            max_dim = max(bounds['size']) * 1.2
+            grid_step = max_dim / self.grid_divisions
+            
+            # Draw grid lines
+            glLineWidth(1.0)
+            glColor4f(*self.grid_color)
+            
+            # Draw primary grid
+            glBegin(GL_LINES)
+            for i in range(-self.grid_divisions, self.grid_divisions + 1):
+                pos = i * grid_step
+                
+                # Make major grid lines more prominent
+                if i % 5 == 0:
+                    glColor4f(*self.grid_color[:3], 0.8)  # More opaque
+                    glLineWidth(2.0)
+                else:
+                    glColor4f(*self.grid_color[:3], 0.3)  # More transparent
+                    glLineWidth(1.0)
+                    
+                # Draw X and Z grid lines
+                glVertex3f(pos, 0, -max_dim)
+                glVertex3f(pos, 0, max_dim)
+                glVertex3f(-max_dim, 0, pos)
+                glVertex3f(max_dim, 0, pos)
+            glEnd()
+            
+            # Draw axis labels using QPainter
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            
+            # Only label major intervals
+            interval = max(1, self.grid_divisions // 5)
+            for i in range(-self.grid_divisions, self.grid_divisions + 1, interval):
+                x = i * grid_step
+                z = i * grid_step
+                
+                # Convert to world coordinates
+                real_x = (x + model_center[0]) * self.model_handler.unit_scale
+                real_z = (z + model_center[2]) * self.model_handler.unit_scale
+                
+                # Label X axis
+                world_pos = (x, 0, 0)
+                if screen_pos := self.world_to_screen(world_pos):
+                    painter.setPen(QColor(200, 100, 100))  # Red for X axis
+                    painter.drawText(screen_pos[0] - 20, screen_pos[1] + 15, f"X: {real_x:.1f}m")
+                
+                # Label Z axis
+                world_pos = (0, 0, z)
+                if screen_pos := self.world_to_screen(world_pos):
+                    painter.setPen(QColor(100, 100, 200))  # Blue for Z axis
+                    painter.drawText(screen_pos[0] - 20, screen_pos[1] + 15, f"Z: {real_z:.1f}m")
+            
+            painter.end()
+            
+            # Draw coordinate axes with thicker lines
+            glLineWidth(3.0)
+            self.draw_coordinate_axes(max_dim / 4)  # Draw smaller axes
+            
             glPopAttrib()
+
         except Exception as e:
             print(f"Error drawing grid: {e}")
 
+    def draw_coordinate_axes(self, size):
+        """Draw coordinate axes with labels."""
+        # X axis (Red)
+        glLineWidth(2.0)
+        glColor4f(1.0, 0.0, 0.0, 1.0)
+        glBegin(GL_LINES)
+        glVertex3f(0, 0, 0)
+        glVertex3f(size/2, 0, 0)
+        glEnd()
+
+        # Y axis (Green)
+        glColor4f(0.0, 1.0, 0.0, 1.0)
+        glBegin(GL_LINES)
+        glVertex3f(0, 0, 0)
+        glVertex3f(0, size/2, 0)
+        glEnd()
+
+        # Z axis (Blue)
+        glColor4f(0.0, 0.0, 1.0, 1.0)
+        glBegin(GL_LINES)
+        glVertex3f(0, 0, 0)
+        glVertex3f(0, 0, size/2)
+        glEnd()
+
+        # Draw axis labels
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Label axes
+        x_end = self.world_to_screen((size/2, 0, 0))
+        y_end = self.world_to_screen((0, size/2, 0))
+        z_end = self.world_to_screen((0, 0, size/2))
+        
+        if x_end:
+            painter.setPen(QColor(255, 0, 0))
+            painter.drawText(x_end[0] + 5, x_end[1], "X")
+        if y_end:
+            painter.setPen(QColor(0, 255, 0))
+            painter.drawText(y_end[0] + 5, y_end[1], "Y")
+        if z_end:
+            painter.setPen(QColor(0, 0, 255))
+            painter.drawText(z_end[0] + 5, z_end[1], "Z")
+        
+        painter.end()
     def draw_points(self):
-        """Draw marked points as spheres."""
+        """Draw marked points as spheres with improved visibility."""
         if not self.point_manager:
             return
 
         try:
             glPushAttrib(GL_ALL_ATTRIB_BITS)
             
-            # Enable lighting for better sphere visualization
-            glEnable(GL_LIGHTING)
+            # Temporarily disable depth testing for points to always be visible
+            glDisable(GL_DEPTH_TEST)
+            glEnable(GL_POINT_SMOOTH)
             glEnable(GL_BLEND)
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
+            # Draw larger points first (background)
+            glDisable(GL_LIGHTING)
+            glPointSize(self.point_size + 4.0)  # Larger background points
+            glBegin(GL_POINTS)
             for point_id, data in self.point_manager.get_all_points().items():
                 position = data['coordinates']
-                
-                # Set color for the point
+                glColor4f(0.0, 0.0, 0.0, 0.5)  # Black outline
+                glVertex3f(*position)
+            glEnd()
+
+            # Draw actual points
+            glPointSize(self.point_size)
+            glBegin(GL_POINTS)
+            for point_id, data in self.point_manager.get_all_points().items():
+                position = data['coordinates']
                 if point_id == self.selected_point_id:
                     glColor4f(*self.selected_point_color)
                 else:
                     glColor4f(*self.point_color)
-                
-                # Draw sphere at point location
-                self.draw_sphere(position, 0.02)  # Adjust radius as needed
+                glVertex3f(*position)
+            glEnd()
+
+            # Re-enable depth testing for spheres
+            glEnable(GL_DEPTH_TEST)
+            glEnable(GL_LIGHTING)
+
+            # Draw small spheres for 3D appearance
+            for point_id, data in self.point_manager.get_all_points().items():
+                position = data['coordinates']
+                if point_id == self.selected_point_id:
+                    glColor4f(*self.selected_point_color)
+                else:
+                    glColor4f(*self.point_color)
+                self.draw_sphere(position, 0.03)  # Slightly larger radius
+
+            # Draw labels
+            self.draw_point_labels()
+
+            # Draw coverage spheres if enabled
+            self.draw_coverage_spheres()
 
             glPopAttrib()
 
-            # Draw point labels using QPainter
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setPen(QColor(*[int(c * 255) for c in self.point_color[:3]]))
-
-            for point_id, data in self.point_manager.get_all_points().items():
-                screen_pos = self.world_to_screen(data['coordinates'])
-                if screen_pos is not None:
-                    x, y = screen_pos
-                    painter.drawText(x - 10, y - 15, f"P{point_id}")
-
-            painter.end()
-
         except Exception as e:
             print(f"Error drawing points: {e}")
+
+    def draw_coverage_spheres(self):
+        """Draw semi-transparent spheres to show sensor coverage."""
+        if not self.show_coverage:
+            return
+
+        glPushAttrib(GL_ALL_ATTRIB_BITS)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        glDisable(GL_LIGHTING)
+
+        for point_id, data in self.point_manager.get_all_points().items():
+            position = data['coordinates']
+            radius = data.get('coverage_radius', self.coverage_radius)  # Use point's radius
+            glColor4f(0.0, 0.7, 1.0, 0.1)  # Light blue, very transparent
+            self.draw_sphere(position, radius)
+
+        glPopAttrib()
 
     def draw_point_labels(self):
         """Draw point labels."""
@@ -437,8 +693,9 @@ class ModelViewer(QOpenGLWidget):
             print(f"Error converting coordinates: {e}")
             return None
 
+   
     def mousePressEvent(self, event):
-        """Handle mouse press events."""
+        """Handle mouse press with proper coordinate transformation."""
         self.last_pos = event.position()
         
         if (event.button() == Qt.MouseButton.LeftButton and 
@@ -446,36 +703,38 @@ class ModelViewer(QOpenGLWidget):
             self.model_handler and 
             self.model_handler.is_loaded):
             
-            print("\n=== Point Marking Debug ===")
-            print(f"Mouse Screen Position: ({event.position().x()}, {event.position().y()})")
-            
-            ray_start, ray_dir = self.get_ray_from_screen(event.position().x(), event.position().y())
-            print(f"Ray Start: {ray_start}")
-            print(f"Ray Direction: {ray_dir}")
-            
-            coords = self.get_3d_coordinates(event.position().x(), event.position().y())
-            if coords is not None:
-                print(f"Initial Intersection Point: {coords}")
+            try:
+                # Get physical coordinates
+                x = float(event.position().x())
+                y = float(event.position().y())
                 
-                # Get current modelview matrix
+                print("\n=== Point Marking Debug ===")
+                print(f"Mouse position: ({x}, {y})")
+                print(f"Window size: {self.width()}x{self.height()}")
+                
+                # Save current matrices
                 modelview = glGetDoublev(GL_MODELVIEW_MATRIX)
+                projection = glGetDoublev(GL_PROJECTION_MATRIX)
                 print(f"Current ModelView Matrix:\n{modelview}")
+                print(f"Current Projection Matrix:\n{projection}")
                 
-                # Transform intersection point using inverse model transformations
-                model_transform = self.model_handler.transformation_matrix
-                print(f"Model Transform Matrix:\n{model_transform}")
-                print(f"Model Scale Factor: {self.model_handler.scale_factor}")
-                print(f"Model Original Center: {self.model_handler.original_center}")
+                # Get ray and try to find intersection
+                coords = self.get_3d_coordinates(x, y)
                 
-                # Apply transformations
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                # Add this just before self.point_added.emit():
-                current_transform = glGetDoublev(GL_MODELVIEW_MATRIX)
-                print(f"Current Complete Transform:\n{current_transform}")
-                modelview_scale = np.linalg.norm(current_transform[:3, :3])
-                print(f"Current ModelView Scale: {modelview_scale}")
-                self.point_added.emit(coords, timestamp)
+                if coords is not None:
+                    print(f"Found intersection at: {coords}")
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    self.point_added.emit(coords, timestamp)
+                else:
+                    print("No intersection found")
+                    
+            except Exception as e:
+                print(f"Error in mouse press: {e}")
+                
+        elif event.button() == Qt.MouseButton.RightButton:
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
 
+   
     def mouseMoveEvent(self, event):
         """Handle mouse movement."""
         if self.last_pos is None:
@@ -537,42 +796,102 @@ class ModelViewer(QOpenGLWidget):
     
         
     def draw_hover_point(self):
-        """Draw hover point preview."""
+        """Draw hover point with surface normal indication."""
         if self.hover_point is None:
             return
 
         try:
             glPushAttrib(GL_ALL_ATTRIB_BITS)
-            glDisable(GL_LIGHTING)
             
-            # Draw cursor crosshair at exact intersection point
+            # Get surface normal at hover point
+            normal = self.get_surface_normal_at_point(self.hover_point)
+            
+            # Draw normal vector
+            if normal is not None:
+                glDisable(GL_LIGHTING)
+                glColor4f(0.0, 1.0, 0.0, 1.0)
+                glBegin(GL_LINES)
+                glVertex3f(*self.hover_point)
+                end_point = self.hover_point + normal * 0.2  # Normal vector length
+                glVertex3f(*end_point)
+                glEnd()
+
+            # Draw hover point
+            glDisable(GL_DEPTH_TEST)
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+            
+            # Draw point highlight
+            glPointSize(self.point_size + 4)
+            glColor4f(0.0, 1.0, 0.0, 0.4)
+            glBegin(GL_POINTS)
+            glVertex3f(*self.hover_point)
+            glEnd()
+            
+            # Draw coordinate info
             screen_pos = self.world_to_screen(self.hover_point)
             if screen_pos:
                 painter = QPainter(self)
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                
+                # Draw crosshair
                 painter.setPen(QColor(0, 255, 0))
                 x, y = screen_pos
-                size = 10  # Crosshair size
+                size = 10
                 painter.drawLine(x - size, y, x + size, y)
                 painter.drawLine(x, y - size, x, y + size)
                 
-                # Draw coordinates
-                coords = self.model_handler.transform_to_model_space(self.hover_point) if self.use_model_coordinates else self.hover_point
-                text = f"({coords[0]:.2f}, {coords[1]:.2f}, {coords[2]:.2f})"
-                painter.drawText(x + 15, y - 15, text)
+                # Draw coordinates in real-world units
+                if self.use_model_coordinates:
+                    coords = self.model_handler.transform_to_model_space(self.hover_point)
+                    coords = [c * self.model_handler.unit_scale for c in coords]
+                    text = f"({coords[0]:.2f}m, {coords[1]:.2f}m, {coords[2]:.2f}m)"
+                    painter.drawText(x + 15, y - 15, text)
+                
                 painter.end()
-
-            # Draw hover sphere
-            glEnable(GL_LIGHTING)
-            glEnable(GL_BLEND)
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-            glColor4f(0.0, 1.0, 0.0, 0.6)  # Semi-transparent green
-            
-            self.draw_sphere(self.hover_point, 0.02)  # Small sphere at hover point
             
             glPopAttrib()
 
         except Exception as e:
             print(f"Error drawing hover point: {e}")
+
+    def get_surface_normal_at_point(self, point):
+        """Calculate surface normal at given point."""
+        if not self.model_handler or not self.model_handler.is_loaded:
+            return None
+
+        try:
+            vertices = self.model_handler.get_vertices()
+            faces = self.model_handler.get_faces()
+            normals = self.model_handler.get_normals()
+
+            # Find closest face
+            min_dist = float('inf')
+            closest_normal = None
+
+            point = np.array(point)
+            for face_idx, face in enumerate(faces):
+                triangle = vertices[face]
+                center = np.mean(triangle, axis=0)
+                dist = np.linalg.norm(center - point)
+                
+                if dist < min_dist:
+                    min_dist = dist
+                    if normals is not None:
+                        closest_normal = normals[face_idx]
+                    else:
+                        # Calculate normal if not provided
+                        v0, v1, v2 = triangle
+                        normal = np.cross(v1 - v0, v2 - v0)
+                        norm = np.linalg.norm(normal)
+                        if norm > 0:
+                            closest_normal = normal / norm
+
+            return closest_normal
+
+        except Exception as e:
+            print(f"Error calculating surface normal: {e}")
+            return None
     def set_point_size(self, size):
         """Set point marker size."""
         self.point_size = float(max(1, min(20, size)))

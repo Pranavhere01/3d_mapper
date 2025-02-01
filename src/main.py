@@ -10,8 +10,11 @@ def setup_environment():
     # Set OpenGL platform for MacOS
     if sys.platform == 'darwin':
         os.environ['PYOPENGL_PLATFORM'] = 'darwin'
-    
-    # Add src directory to Python path
+
+    if sys.platform == 'win32':
+        os.environ['PYOPENGL_PLATFORM'] = 'win32'
+        
+
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def main():

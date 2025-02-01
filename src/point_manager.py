@@ -1,3 +1,4 @@
+
 import json
 from datetime import datetime
 import numpy as np
@@ -20,6 +21,210 @@ class PointManager:
         self.selected_point = None
         self.model_handler = None
         self.sensor_options = SensorOptions()
+        
+        # New attributes for enhanced point handling
+        self.coverage_radius = 2.0  # meters
+        self.point_size = 0.1      # meters
+        self.surface_tolerance = 0.001  # meters
+
+    def add_point(self, coordinates: Tuple[float, float, float], timestamp: str = None, coverage_radius: float = None) -> Optional[int]:
+        """Add a point with enhanced surface information.
+        
+        Args:
+            coordinates: (x, y, z) coordinates in normalized space
+            timestamp: Optional timestamp string
+            coverage_radius: Optional coverage radius in meters
+        
+        Returns:
+            int: Point ID if successful, None if failed
+        """
+        try:
+            if not self.model_handler:
+                print("Model handler not set")
+                return None
+
+            point_id = self.current_id
+            
+            # Convert coordinates
+            try:
+                normalized_coords = tuple(map(float, coordinates))
+                model_coords = tuple(self.model_handler.transform_to_model_space(coordinates))
+            except Exception as e:
+                print(f"Error converting coordinates: {e}")
+                return None
+
+            # Get surface information
+            try:
+                surface_normal = self.model_handler.get_surface_normal_at_point(normalized_coords)
+                if surface_normal is not None:
+                    surface_normal = surface_normal.tolist()
+                    surface_type = self.model_handler.get_surface_type(normalized_coords, surface_normal)
+                else:
+                    surface_type = "unknown"
+            except Exception as e:
+                print(f"Error getting surface information: {e}")
+                surface_normal = None
+                surface_type = "unknown"
+
+            # Create point data
+            self.points[point_id] = {
+                'id': point_id,
+                'coordinates': normalized_coords,
+                'model_coordinates': model_coords,
+                'normal': surface_normal,
+                'surface_type': surface_type,
+                'label': f"Point {point_id}",
+                'timestamp': timestamp or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'color': (1.0, 0.0, 0.0),
+                'coverage_radius': coverage_radius if coverage_radius is not None else self.coverage_radius,
+                'notes': "",
+                'sensors': {
+                    'motion_sensor': "",
+                    'occupancy_sensor': "",
+                    'environmental_sensor': "",
+                    'physiological_sensor': "",
+                    'location_receiver': ""
+                }
+            }
+
+            # Validate point placement
+            if not self.model_handler.is_point_on_surface(normalized_coords, tolerance=0.001):
+                print(f"Warning: Point {point_id} may not be exactly on surface")
+
+            print(f"Added point {point_id} at {model_coords} ({surface_type})")
+            self.current_id += 1
+            return point_id
+
+        except Exception as e:
+            print(f"Error adding point: {e}")
+            return None
+
+    def get_point_coverage(self, point_id: int) -> List[Tuple[float, float, float]]:
+        """Get coverage area points for visualization."""
+        try:
+            point = self.get_point(point_id)
+            if not point:
+                return []
+
+            # Generate sphere points for coverage visualization
+            coverage_points = []
+            radius = point.get('coverage_radius', self.coverage_radius)
+            center = point['coordinates']
+            
+            # Generate points on a sphere
+            phi = np.pi * (3 - np.sqrt(5))
+            points_count = 100
+            
+            for i in range(points_count):
+                y = 1 - (i / float(points_count - 1)) * 2
+                radius_at_y = np.sqrt(1 - y * y)
+                
+                theta = phi * i
+                
+                x = np.cos(theta) * radius_at_y
+                z = np.sin(theta) * radius_at_y
+                
+                point = (
+                    center[0] + x * radius,
+                    center[1] + y * radius,
+                    center[2] + z * radius
+                )
+                coverage_points.append(point)
+            
+            return coverage_points
+        except Exception as e:
+            print(f"Error calculating coverage: {e}")
+            return []
+
+    def format_point_info(self, point_id: int) -> str:
+        """Enhanced point information formatting."""
+        point = self.get_point(point_id)
+        if point:
+            model_coords = point['model_coordinates']
+            surface_info = f"Surface Type: {point.get('surface_type', 'unknown')}\n"
+            if point.get('normal'):
+                surface_info += f"Normal: ({point['normal'][0]:.2f}, {point['normal'][1]:.2f}, {point['normal'][2]:.2f})\n"
+            
+            return (
+                f"Point ID: {point['id']}\n"
+                f"Model Coordinates (meters):\n"
+                f"X: {model_coords[0]:.3f}m\n"
+                f"Y: {model_coords[1]:.3f}m\n"
+                f"Z: {model_coords[2]:.3f}m\n"
+                f"{surface_info}"
+                f"Coverage Radius: {point.get('coverage_radius', self.coverage_radius):.1f}m\n"
+                f"Timestamp: {point['timestamp']}\n"
+                f"Motion Sensor: {point['sensors'].get('motion_sensor', '')}\n"
+                f"Occupancy Sensor: {point['sensors'].get('occupancy_sensor', '')}\n"
+                f"Environmental Sensor: {point['sensors'].get('environmental_sensor', '')}\n"
+                f"Physiological Sensor: {point['sensors'].get('physiological_sensor', '')}\n"
+                f"Location Receiver: {point['sensors'].get('location_receiver', '')}\n"
+                f"Notes: {point.get('notes', '')}"
+            )
+        return "No point selected"
+
+    def update_point_coverage(self, point_id: int, radius: float) -> bool:
+        """Update coverage radius for a point."""
+        try:
+            if point_id in self.points:
+                self.points[point_id]['coverage_radius'] = max(0.1, radius)
+                return True
+            return False
+        except Exception as e:
+            print(f"Error updating coverage: {e}")
+            return False
+
+    def save_points(self, filepath: str) -> bool:
+        """Enhanced point saving with surface information."""
+        try:
+            data = {
+                str(pid): {
+                    'id': p['id'],
+                    'coordinates': p['model_coordinates'],
+                    'normal': p.get('normal'),
+                    'surface_type': p.get('surface_type', 'unknown'),
+                    'coverage_radius': p.get('coverage_radius', self.coverage_radius),
+                    'label': p['label'],
+                    'timestamp': p['timestamp'],
+                    'notes': p.get('notes', ''),
+                    'sensors': p['sensors']
+                } for pid, p in self.points.items()
+            }
+            with open(filepath, 'w') as f:
+                json.dump(data, f, indent=2)
+            return True
+        except Exception as e:
+            print(f"Error saving points: {e}")
+            return False
+
+    def load_points(self, filepath: str) -> bool:
+        """Enhanced point loading with surface information."""
+        try:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+            self.points.clear()
+            for pid, p in data.items():
+                model_coords = tuple(p['coordinates'])
+                normalized_coords = tuple(self.model_handler.transform_to_normalized_space(model_coords)) if self.model_handler else model_coords
+                self.points[int(pid)] = {
+                    'id': int(pid),
+                    'coordinates': normalized_coords,
+                    'model_coordinates': model_coords,
+                    'normal': p.get('normal'),
+                    'surface_type': p.get('surface_type', 'unknown'),
+                    'coverage_radius': p.get('coverage_radius', self.coverage_radius),
+                    'label': p['label'],
+                    'timestamp': p['timestamp'],
+                    'notes': p.get('notes', ''),
+                    'color': (1.0, 0.0, 0.0),
+                    'sensors': p.get('sensors', {})
+                }
+            if self.points:
+                self.current_id = max(int(k) for k in self.points.keys()) + 1
+            return True
+        except Exception as e:
+            print(f"Error loading points: {e}")
+            return False
 
     def set_model_handler(self, handler):
         """Set model handler for coordinate transformations."""
@@ -36,26 +241,7 @@ class PointManager:
         }
         return options_map.get(sensor_type, [])
 
-    def add_point(self, coordinates: Tuple[float, float, float], timestamp: str = None) -> Optional[int]:
-        point_id = self.current_id
-        self.points[point_id] = {
-            'id': point_id,
-            'coordinates': tuple(map(float, coordinates)),
-            'model_coordinates': tuple(self.model_handler.transform_to_model_space(coordinates)) if self.model_handler else coordinates,
-            'label': f"Point {point_id}",
-            'timestamp': timestamp or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'color': (1.0, 0.0, 0.0),
-            'notes': "",
-            'sensors': {
-                'motion_sensor': "",
-                'occupancy_sensor': "",
-                'environmental_sensor': "",
-                'physiological_sensor': "",
-                'location_receiver': ""
-            }
-        }
-        self.current_id += 1
-        return point_id
+    
 
     def update_point_sensor(self, point_id: int, sensor_type: str, value: str) -> bool:
         """Update point sensor parameter and ensure persistence."""
@@ -108,49 +294,9 @@ class PointManager:
             return True
         return False
 
-    def save_points(self, filepath: str) -> bool:
-        try:
-            data = {
-                str(pid): {
-                    'id': p['id'],
-                    'coordinates': p['model_coordinates'],
-                    'label': p['label'],
-                    'timestamp': p['timestamp'],
-                    'notes': p.get('notes', ''),
-                    'sensors': p['sensors']
-                } for pid, p in self.points.items()
-            }
-            with open(filepath, 'w') as f:
-                json.dump(data, f, indent=2)
-            return True
-        except Exception as e:
-            print(f"Error saving points: {e}")
-            return False
+    
 
-    def load_points(self, filepath: str) -> bool:
-        try:
-            with open(filepath, 'r') as f:
-                data = json.load(f)
-            self.points.clear()
-            for pid, p in data.items():
-                model_coords = tuple(p['coordinates'])
-                normalized_coords = tuple(self.model_handler.transform_to_normalized_space(model_coords)) if self.model_handler else model_coords
-                self.points[int(pid)] = {
-                    'id': int(pid),
-                    'coordinates': normalized_coords,
-                    'model_coordinates': model_coords,
-                    'label': p['label'],
-                    'timestamp': p['timestamp'],
-                    'notes': p.get('notes', ''),
-                    'color': (1.0, 0.0, 0.0),
-                    'sensors': p.get('sensors', {})
-                }
-            if self.points:
-                self.current_id = max(int(k) for k in self.points.keys()) + 1
-            return True
-        except Exception as e:
-            print(f"Error loading points: {e}")
-            return False
+    
 
     def auto_save_point_state(self, point_id: int) -> bool:
         """Auto-save point state when changes occur"""
@@ -173,25 +319,7 @@ class PointManager:
             print(f"Error auto-saving point state: {e}")
             return False
 
-    def format_point_info(self, point_id: int) -> str:
-        point = self.get_point(point_id)
-        if point:
-            model_coords = point['model_coordinates']
-            return (
-                f"Point ID: {point['id']}\n"
-                f"Model Coordinates:\n"
-                f"X: {model_coords[0]:.3f}\n"
-                f"Y: {model_coords[1]:.3f}\n"
-                f"Z: {model_coords[2]:.3f}\n"
-                f"Timestamp: {point['timestamp']}\n"
-                f"Motion Sensor: {point['sensors'].get('motion_sensor', '')}\n"
-                f"Occupancy Sensor: {point['sensors'].get('occupancy_sensor', '')}\n"
-                f"Environmental Sensor: {point['sensors'].get('environmental_sensor', '')}\n"
-                f"Physiological Sensor: {point['sensors'].get('physiological_sensor', '')}\n"
-                f"Location Receiver: {point['sensors'].get('location_receiver', '')}\n"
-                f"Notes: {point.get('notes', '')}"
-            )
-        return "No point selected"
+    
 
     def format_point_summary(self, point_id: int) -> str:
         """Format point summary for list display."""
