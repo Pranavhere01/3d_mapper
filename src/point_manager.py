@@ -7,6 +7,29 @@ from dataclasses import dataclass
 
 @dataclass
 class SensorOptions:
+    """A class containing lists of different types of sensors and receivers for dropdown menus.
+
+    This class provides static lists of various sensor types and location receivers that can be
+    used to populate dropdown menus in user interfaces. The sensors are categorized into:
+    motion sensors, occupancy sensors, environmental sensors, physiological sensors, and
+    location receivers.
+
+    Class Attributes:
+        MOTION_SENSORS (list): List of motion sensing technologies including accelerometers,
+            gyroscopes, barometers, magnetometers and PIR sensors.
+        OCCUPANCY_SENSORS (list): List of occupancy detection sensors including WiFi,
+            image based, radio based, CO2, PIR and threshold/mechanical sensors.
+        ENVIRONMENTAL_SENSORS (list): List of environmental monitoring sensors including CO2,
+            light, air velocity, particulate matter, temperature, humidity and VOC sensors.
+        PHYSIOLOGICAL_SENSORS (list): List of physiological measurement sensors including
+            heart rate, respiration rate, skin temperature, skin conductivity and wearable sensors.
+        LOCATION_RECEIVERS (list): List of location tracking technologies including WiFi,
+            Bluetooth, RFID Tags, BLE and GSM cell phone tracking.
+
+    Note:
+        Each list starts with an empty string as the first element to provide a blank/default
+        option in dropdown menus.
+    """
     """Stores sensor options for dropdown menus."""
     MOTION_SENSORS = ["", "Accelerometers", "Gyroscopes", "Barometers", "Magnetometers", "PIR"]
     OCCUPANCY_SENSORS = ["", "WiFi", "Image based", "Radio based", "CO2", "PIR", "Threshold & mechanical"]
@@ -15,6 +38,40 @@ class SensorOptions:
     LOCATION_RECEIVERS = ["", "WiFi", "Bluetooth", "RFID Tags", "BLE", "Cell phone (GSM)"]
 
 class PointManager:
+    """A class for managing 3D points with enhanced surface and sensor information.
+    This class handles the creation, modification, and management of 3D points in both normalized
+    and model space coordinates. It supports various features including surface information,
+    sensor configurations, coverage areas, and point persistence.
+    Attributes:
+        points (dict): Dictionary storing point data, keyed by point ID
+        current_id (int): Counter for generating unique point IDs
+        selected_point (int): Currently selected point ID
+        model_handler: Handler for coordinate transformations
+        sensor_options (SensorOptions): Available sensor configuration options
+        coverage_radius (float): Default coverage radius in meters
+        point_size (float): Default point size in meters
+        surface_tolerance (float): Tolerance for surface placement in meters
+    Methods:
+        add_point: Add a new point with surface information
+        get_point_coverage: Calculate coverage area points for visualization
+        format_point_info: Format detailed point information
+        update_point_coverage: Update point coverage radius
+        save_points: Save points data to file
+        load_points: Load points data from file
+        set_model_handler: Set handler for coordinate transformations
+        get_sensor_options: Get available sensor options by type
+        update_point_sensor: Update point sensor configuration
+        update_point_notes: Update point notes
+        get_point: Get point data by ID
+        get_all_points: Get all points data
+        get_points_array: Get points as numpy array
+        select_point: Select a point by ID
+        delete_point: Delete a point by ID
+        auto_save_point_state: Auto-save point state
+        format_point_summary: Format point summary for display
+        clear_points: Clear all points
+    The class provides comprehensive point management functionality for 3D mapping applications
+    with support for surface analysis, sensor configuration, and data persistence.
     def __init__(self):
         self.points = {}
         self.current_id = 0
@@ -25,7 +82,7 @@ class PointManager:
         # New attributes for enhanced point handling
         self.coverage_radius = 2.0  # meters
         self.point_size = 0.1      # meters
-        self.surface_tolerance = 0.001  # meters
+        self.surface_tolerance = 0.001  # meters"""
 
     def add_point(self, coordinates: Tuple[float, float, float], timestamp: str = None, coverage_radius: float = None) -> Optional[int]:
         """Add a point with enhanced surface information.

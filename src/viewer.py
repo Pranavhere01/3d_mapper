@@ -7,6 +7,70 @@ import numpy as np
 from datetime import datetime
 
 class ModelViewer(QOpenGLWidget):
+    """A PyQt-based OpenGL widget for 3D model visualization and point marking.
+    This class provides an interactive 3D viewer for displaying and manipulating 3D models,
+    with support for point marking, grid display, and various visualization modes.
+    Attributes:
+        point_added (pyqtSignal): Signal emitted when a new point is added (coordinates, timestamp)
+        coordinate_updated (pyqtSignal): Signal emitted when coordinates are updated in real-time
+        point_selected (pyqtSignal): Signal emitted when a point is selected
+    Core Components:
+        model_handler: Handles 3D model data and transformations
+        point_manager: Manages marked points and their properties
+    View Settings:
+        rotation (list): Current rotation angles [x, y, z]
+        translation (list): Current translation offsets [x, y, z]
+        scale (float): Current zoom scale
+        last_pos (QPoint): Last mouse position for interaction
+    Display Settings:
+        point_size (float): Size of marked points
+        bg_color (tuple): Background color (RGBA)
+        model_color (tuple): Model color (RGBA)
+        point_color (tuple): Point marker color (RGBA)
+        selected_point_color (tuple): Selected point color (RGBA)
+        view_mode (str): Rendering mode ('Solid', 'Wireframe', 'Points')
+    Grid Settings:
+        show_grid (bool): Grid visibility flag
+        grid_color (tuple): Grid color (RGBA)
+        grid_size (float): Grid cell size
+        grid_divisions (int): Number of grid divisions
+    Coverage Settings:
+        show_coverage (bool): Coverage sphere visibility flag
+        coverage_radius (float): Radius of coverage spheres
+        coverage_opacity (float): Opacity of coverage spheres
+        coverage_color (tuple): Color of coverage spheres (RGBA)
+    Point Marking:
+        marking_enabled (bool): Point marking mode flag
+        hover_point (tuple): Current hover point coordinates
+        selected_point_id (int): Currently selected point ID
+        use_model_coordinates (bool): Use model space coordinates flag
+    Methods:
+        set_handlers(model_handler, point_manager): Set model and point handlers
+        initializeGL(): Initialize OpenGL settings
+        resizeGL(width, height): Handle window resize events
+        paintGL(): Render the scene
+        draw_model(): Draw the 3D model
+        draw_points(): Draw marked points
+        draw_grid(): Draw reference grid
+        draw_hover_point(): Draw hover point preview
+        get_3d_coordinates(x, y): Get 3D coordinates from screen position
+        toggle_grid(show): Toggle grid visibility
+        toggle_point_marking(enabled): Toggle point marking mode
+        select_point(point_id): Select a specific point
+        set_point_size(size): Set point marker size
+        set_view_mode(mode): Set rendering mode
+        reset_view(): Reset camera to default position
+        set_colors(which, color): Set colors for different elements
+        cleanup(): Clean up OpenGL resources
+    Events:
+        mousePressEvent(event): Handle mouse press
+        mouseMoveEvent(event): Handle mouse movement
+        wheelEvent(event): Handle mouse wheel for zooming
+    Dependencies:
+        - PyQt6
+        - OpenGL
+        - numpy
+    """
     # Signals
     point_added = pyqtSignal(tuple, str)  # (coordinates, timestamp)
     coordinate_updated = pyqtSignal(tuple)  # Real-time coordinates

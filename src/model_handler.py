@@ -4,6 +4,53 @@ from typing import Tuple, Dict, Optional, List
 import os
 
 class ModelHandler:
+    """A class for handling 3D model operations including loading, transformation, and analysis.
+    This class provides comprehensive functionality for working with 3D models, including
+    loading from various file formats, normalization, transformation, and geometric analysis.
+    Attributes:
+        model (trimesh.Trimesh): The loaded 3D model object.
+        is_loaded (bool): Flag indicating if a model is currently loaded.
+        vertices (np.ndarray): Array of model vertices.
+        faces (np.ndarray): Array of model faces.
+        normals (np.ndarray): Array of face normals.
+        original_center (np.ndarray): Original center position of the model.
+        scale_factor (float): Current scale factor applied to the model.
+        transformation_matrix (np.ndarray): 4x4 transformation matrix.
+        surface_normals (np.ndarray): Surface normal vectors.
+        unit_scale (float): Scale factor for converting to meters.
+        model_bounds (dict): Dictionary containing model boundary information.
+        model_center (np.ndarray): Current center position of the model.
+        model_dimensions (np.ndarray): Model dimensions in each axis.
+        floor_heights (list): List of detected floor heights.
+        grid_scale (float): Scale factor for grid snapping.
+    Methods:
+        load_model(filepath: str) -> Tuple[bool, str]:
+            Loads a 3D model from the specified file path.
+        verify_model() -> bool:
+            Verifies the integrity of the loaded model.
+        prepare_data():
+            Prepares model data for rendering.
+        normalize_model():
+            Normalizes the model position and scale.
+        is_point_on_surface(point, tolerance=0.001) -> bool:
+            Checks if a point lies on the model's surface.
+        get_model_bounds() -> Dict:
+            Returns the model's boundary information.
+        detect_floors() -> List[float]:
+            Detects and returns floor heights in the model.
+        transform_to_model_space(coords: np.ndarray) -> np.ndarray:
+            Transforms coordinates from normalized to model space.
+        get_surface_normal_at_point(point: np.ndarray) -> Optional[np.ndarray]:
+            Calculates the surface normal at a given point.
+        get_surface_type(point: np.ndarray, normal: np.ndarray) -> str:
+            Determines the type of surface (floor, wall, ceiling).
+        get_vertices() -> Optional[np.ndarray]:
+            Returns the model's vertices.
+        get_faces() -> Optional[np.ndarray]:
+            Returns the model's faces.
+        get_normals() -> Optional[np.ndarray]:
+            Returns the model's normals.
+    """
     def __init__(self):
         # Initialize basic attributes
         self.model = None

@@ -12,6 +12,37 @@ from src.point_manager import PointManager, SensorOptions
 from src.ui.styles import StyleSheet
 
 class MainWindow(QMainWindow):
+    """A main window class for the 3D Model Viewer Pro application.
+    This class handles the main application window and all its components, including the
+    3D model viewer, point marking interface, and sensor configuration panels.
+    Attributes:
+        model_handler (ModelHandler): Handles 3D model loading and manipulation
+        point_manager (PointManager): Manages marked points and their properties
+        sensor_combos (dict): Dictionary of sensor combo boxes for configuration
+        viewer (ModelViewer): The 3D model viewer widget
+        points_layout (QVBoxLayout): Layout containing marked points widgets
+        notes_edit (QTextEdit): Text editor for point notes
+        point_info (QTextEdit): Display for detailed point information
+    Methods:
+        init_ui(): Initializes the main user interface layout
+        create_left_panel(): Creates the left control panel with file and view settings
+        create_center_panel(): Creates the central 3D viewer panel
+        create_right_panel(): Creates the right panel for point data and sensor selection
+        setup_connections(): Sets up signal/slot connections
+        select_point(point_id): Selects a specific point and updates the UI
+        update_point_sensor(sensor_type, value): Updates sensor configuration for selected point
+        delete_point(point_id): Removes a point from the system
+        load_model(): Handles loading of 3D model files
+        save_points(): Saves marked points to a file
+    Signals:
+        None
+    Keyboard Shortcuts:
+        M: Toggle point marking mode
+        G: Toggle grid display
+        R: Reset view
+        Escape: Cancel point marking
+        Space: Cycle through view modes
+    """
     def __init__(self):
         super().__init__()
         # Initialize handlers
