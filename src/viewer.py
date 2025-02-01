@@ -6,6 +6,8 @@ from OpenGL.GLU import *
 import numpy as np
 from datetime import datetime
 
+from .picking import EnhancedPicking
+
 class ModelViewer(QOpenGLWidget):
     """A PyQt-based OpenGL widget for 3D model visualization and point marking.
     This class provides an interactive 3D viewer for displaying and manipulating 3D models,
@@ -90,7 +92,7 @@ class ModelViewer(QOpenGLWidget):
         # Core components
         self.model_handler = None
         self.point_manager = None
-        
+        self.picking = EnhancedPicking()
         # View settings
         self.rotation = [0, 0, 0]
         self.translation = [0, 0, -10]
@@ -107,10 +109,10 @@ class ModelViewer(QOpenGLWidget):
         
         # Grid settings
         self.show_grid = False
-        self.grid_color = (0.5, 0.5, 0.5, 0.5)
+        self.grid_color = (0.5, 0.5, 0.5, 0.5)  # Semi-transparent gray
         self.grid_size = 1.0
         self.grid_divisions = 10
-        
+            
         self.show_coverage = True
         self.coverage_radius = 0.5  # meters
         self.coverage_opacity = 0.1
@@ -225,25 +227,32 @@ class ModelViewer(QOpenGLWidget):
             glRotatef(self.rotation[1], 0, 1, 0)
             glScalef(self.scale, self.scale, self.scale)
 
-            # Ensure depth testing is enabled
-            glEnable(GL_DEPTH_TEST)
-            
-            # Draw scene elements in correct order
-            if self.show_grid:
-                self.draw_grid()
-            
-            # Draw model
-            glEnable(GL_LIGHTING)
-            self.draw_model()
-            
-            # Draw points
-            glDisable(GL_LIGHTING)
-            if self.point_manager and self.point_manager.get_all_points():
-                self.draw_points()
-            
-            # Draw hover point last
-            if self.marking_enabled and self.hover_point is not None:
-                self.draw_hover_point()
+            # Save state
+            glPushAttrib(GL_ALL_ATTRIB_BITS)
+            try:
+                # Enable depth testing for proper 3D rendering
+                glEnable(GL_DEPTH_TEST)
+                
+                # Draw grid first (if enabled)
+                if self.show_grid:
+                    glDisable(GL_LIGHTING)  # Grid doesn't need lighting
+                    self.draw_grid()
+                
+                # Draw model with lighting
+                glEnable(GL_LIGHTING)
+                self.draw_model()
+                
+                # Draw points without lighting
+                glDisable(GL_LIGHTING)
+                if self.point_manager and self.point_manager.get_all_points():
+                    self.draw_points()
+                
+                # Draw hover point last
+                if self.marking_enabled and self.hover_point is not None:
+                    self.draw_hover_point()
+
+            finally:
+                glPopAttrib()  # Restore state
 
         except Exception as e:
             print(f"Error in paintGL: {e}")
@@ -279,12 +288,72 @@ class ModelViewer(QOpenGLWidget):
                     vertex = vertices[vertex_index]
                     glVertex3f(*vertex)
             glEnd()
-            
-            glPopAttrib()
-                
+
         except Exception as e:
             print(f"Error drawing model: {e}")
+        finally:
+            glPopAttrib()
 
+    def draw_hover_point(self):
+        """Draw hover point with surface normal indication."""
+        if self.hover_point is None:
+            return
+
+        try:
+            glPushAttrib(GL_ALL_ATTRIB_BITS)
+            
+            # Draw normal vector
+            normal = self.get_surface_normal_at_point(self.hover_point)
+            if normal is not None:
+                glDisable(GL_LIGHTING)
+                glColor4f(0.0, 1.0, 0.0, 1.0)
+                glBegin(GL_LINES)
+                glVertex3f(*self.hover_point)
+                end_point = self.hover_point + normal * 0.2
+                glVertex3f(*end_point)
+                glEnd()
+
+            # Draw hover point
+            glDisable(GL_DEPTH_TEST)
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+            
+            # Draw point highlight
+            glPointSize(self.point_size + 4)
+            glColor4f(0.0, 1.0, 0.0, 0.4)
+            glBegin(GL_POINTS)
+            glVertex3f(*self.hover_point)
+            glEnd()
+            
+            # Draw 2D elements using QPainter
+            screen_pos = self.world_to_screen(self.hover_point)
+            if screen_pos:
+                painter = QPainter(self)
+                painter.begin(self)  # Begin painting before any drawing
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                
+                # Draw crosshair
+                painter.setPen(QColor(0, 255, 0))
+                x, y = screen_pos
+                size = 10
+                painter.drawLine(x - size, y, x + size, y)
+                painter.drawLine(x, y - size, x, y + size)
+                
+                # Draw coordinates in real-world units
+                if self.use_model_coordinates and self.model_handler:
+                    try:
+                        coords = self.model_handler.transform_to_model_space(self.hover_point)
+                        text = f"({coords[0]:.2f}m, {coords[1]:.2f}m, {coords[2]:.2f}m)"
+                        painter.drawText(x + 15, y - 15, text)
+                    except Exception as e:
+                        print(f"Error converting coordinates: {e}")
+                
+                painter.end()  # End painting after all drawing operations
+
+        except Exception as e:
+            print(f"Error drawing hover point: {e}")
+        finally:
+            glPopAttrib()
 
     def get_ray_from_screen(self, x, y):
         """Convert screen coordinates to world ray."""
@@ -416,53 +485,6 @@ class ModelViewer(QOpenGLWidget):
             print(f"Error getting 3D coordinates: {e}")
             return None
 
-    def draw_hover_point(self):
-        """Draw hover point preview with surface normal indication."""
-        if self.hover_point is None:
-            return
-
-        try:
-            glPushAttrib(GL_ALL_ATTRIB_BITS)
-            glDisable(GL_LIGHTING)
-            
-            # Draw cursor crosshair at exact intersection point
-            screen_pos = self.world_to_screen(self.hover_point)
-            if screen_pos:
-                painter = QPainter(self)
-                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                painter.setPen(QColor(0, 255, 0))
-                x, y = screen_pos
-                size = 10
-                
-                # Draw crosshair
-                painter.drawLine(x - size, y, x + size, y)
-                painter.drawLine(x, y - size, x, y + size)
-                
-                # Draw circle to indicate surface point
-                painter.drawEllipse(x - size//2, y - size//2, size, size)
-                
-                # Draw coordinates
-                if self.use_model_coordinates:
-                    coords = self.model_handler.transform_to_model_space(self.hover_point)
-                else:
-                    coords = self.hover_point
-                text = f"({coords[0]:.2f}, {coords[1]:.2f}, {coords[2]:.2f})"
-                painter.drawText(x + 15, y - 15, text)
-                painter.end()
-
-            # Draw hover sphere
-            glEnable(GL_LIGHTING)
-            glEnable(GL_BLEND)
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-            glColor4f(0.0, 1.0, 0.0, 0.6)  # Semi-transparent green
-            
-            # Draw smaller sphere for precise point indication
-            self.draw_sphere(self.hover_point, 0.01)
-            
-            glPopAttrib()
-
-        except Exception as e:
-            print(f"Error drawing hover point: {e}")
 
     def ray_triangle_intersection(self, ray_origin, ray_direction, triangle):
         """Möller–Trumbore intersection algorithm."""
@@ -502,8 +524,11 @@ class ModelViewer(QOpenGLWidget):
             return None
     def toggle_grid(self, show):
         """Toggle grid visibility."""
-        self.show_grid = show
-        self.update()
+        try:
+            self.show_grid = show
+            self.update()
+        except Exception as e:
+            print(f"Error toggling grid: {e}")
 
     def toggle_point_marking(self, enabled):
         """Toggle point marking mode."""
@@ -532,7 +557,7 @@ class ModelViewer(QOpenGLWidget):
             bounds = self.model_handler.get_model_bounds()
             if not bounds:
                 return
-                
+                    
             # Calculate grid dimensions
             model_center = bounds['center']
             max_dim = max(bounds['size']) * 1.2
@@ -544,60 +569,66 @@ class ModelViewer(QOpenGLWidget):
             
             # Draw primary grid
             glBegin(GL_LINES)
-            for i in range(-self.grid_divisions, self.grid_divisions + 1):
-                pos = i * grid_step
-                
-                # Make major grid lines more prominent
-                if i % 5 == 0:
-                    glColor4f(*self.grid_color[:3], 0.8)  # More opaque
-                    glLineWidth(2.0)
-                else:
-                    glColor4f(*self.grid_color[:3], 0.3)  # More transparent
-                    glLineWidth(1.0)
+            try:
+                for i in range(-self.grid_divisions, self.grid_divisions + 1):
+                    pos = i * grid_step
                     
-                # Draw X and Z grid lines
-                glVertex3f(pos, 0, -max_dim)
-                glVertex3f(pos, 0, max_dim)
-                glVertex3f(-max_dim, 0, pos)
-                glVertex3f(max_dim, 0, pos)
-            glEnd()
-            
+                    # Make major grid lines more prominent
+                    if i % 5 == 0:
+                        glColor4f(*self.grid_color[:3], 0.8)  # More opaque
+                        glLineWidth(2.0)
+                    else:
+                        glColor4f(*self.grid_color[:3], 0.3)  # More transparent
+                        glLineWidth(1.0)
+                        
+                    # Draw X and Z grid lines
+                    glVertex3f(pos, 0, -max_dim)
+                    glVertex3f(pos, 0, max_dim)
+                    glVertex3f(-max_dim, 0, pos)
+                    glVertex3f(max_dim, 0, pos)
+            finally:
+                glEnd()
+                
             # Draw axis labels using QPainter
             painter = QPainter(self)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            
-            # Only label major intervals
-            interval = max(1, self.grid_divisions // 5)
-            for i in range(-self.grid_divisions, self.grid_divisions + 1, interval):
-                x = i * grid_step
-                z = i * grid_step
+            painter.begin(self)
+            try:
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
                 
-                # Convert to world coordinates
-                real_x = (x + model_center[0]) * self.model_handler.unit_scale
-                real_z = (z + model_center[2]) * self.model_handler.unit_scale
+                # Only label major intervals
+                interval = max(1, self.grid_divisions // 5)
+                for i in range(-self.grid_divisions, self.grid_divisions + 1, interval):
+                    x = i * grid_step
+                    z = i * grid_step
+                    
+                    # Convert to world coordinates
+                    real_x = (x + model_center[0]) * self.model_handler.unit_scale
+                    real_z = (z + model_center[2]) * self.model_handler.unit_scale
+                    
+                    # Label X axis
+                    world_pos = (x, 0, 0)
+                    screen_pos = self.world_to_screen(world_pos)
+                    if screen_pos:
+                        painter.setPen(QColor(200, 100, 100))  # Red for X axis
+                        painter.drawText(screen_pos[0] - 20, screen_pos[1] + 15, f"X: {real_x:.1f}m")
+                    
+                    # Label Z axis
+                    world_pos = (0, 0, z)
+                    screen_pos = self.world_to_screen(world_pos)
+                    if screen_pos:
+                        painter.setPen(QColor(100, 100, 200))  # Blue for Z axis
+                        painter.drawText(screen_pos[0] - 20, screen_pos[1] + 15, f"Z: {real_z:.1f}m")
+            finally:
+                painter.end()
                 
-                # Label X axis
-                world_pos = (x, 0, 0)
-                if screen_pos := self.world_to_screen(world_pos):
-                    painter.setPen(QColor(200, 100, 100))  # Red for X axis
-                    painter.drawText(screen_pos[0] - 20, screen_pos[1] + 15, f"X: {real_x:.1f}m")
-                
-                # Label Z axis
-                world_pos = (0, 0, z)
-                if screen_pos := self.world_to_screen(world_pos):
-                    painter.setPen(QColor(100, 100, 200))  # Blue for Z axis
-                    painter.drawText(screen_pos[0] - 20, screen_pos[1] + 15, f"Z: {real_z:.1f}m")
-            
-            painter.end()
-            
             # Draw coordinate axes with thicker lines
             glLineWidth(3.0)
             self.draw_coordinate_axes(max_dim / 4)  # Draw smaller axes
-            
-            glPopAttrib()
 
         except Exception as e:
             print(f"Error drawing grid: {e}")
+        finally:
+            glPopAttrib()
 
     def draw_coordinate_axes(self, size):
         """Draw coordinate axes with labels."""
@@ -761,7 +792,7 @@ class ModelViewer(QOpenGLWidget):
     def mousePressEvent(self, event):
         """Handle mouse press with proper coordinate transformation."""
         self.last_pos = event.position()
-        
+
         if (event.button() == Qt.MouseButton.LeftButton and 
             self.marking_enabled and 
             self.model_handler and 
@@ -772,25 +803,25 @@ class ModelViewer(QOpenGLWidget):
                 x = float(event.position().x())
                 y = float(event.position().y())
                 
-                print("\n=== Point Marking Debug ===")
-                print(f"Mouse position: ({x}, {y})")
-                print(f"Window size: {self.width()}x{self.height()}")
+                # Update matrices for accurate picking
+                self.picking.update_matrices()
+                self.picking.set_mesh_data(
+                    self.model_handler.get_vertices(),
+                    self.model_handler.get_faces()
+                )
                 
-                # Save current matrices
-                modelview = glGetDoublev(GL_MODELVIEW_MATRIX)
-                projection = glGetDoublev(GL_PROJECTION_MATRIX)
-                print(f"Current ModelView Matrix:\n{modelview}")
-                print(f"Current Projection Matrix:\n{projection}")
-                
-                # Get ray and try to find intersection
-                coords = self.get_3d_coordinates(x, y)
+                # Get exact intersection point
+                coords = self.picking.get_surface_point(x, y)
                 
                 if coords is not None:
                     print(f"Found intersection at: {coords}")
                     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    self.point_added.emit(coords, timestamp)
+                    # Convert NumPy array to tuple before emitting
+                    coords_tuple = tuple(float(x) for x in coords)
+                    self.point_added.emit(coords_tuple, timestamp)
                 else:
                     print("No intersection found")
+                    self.point_added.emit(None, None)
                     
             except Exception as e:
                 print(f"Error in mouse press: {e}")
@@ -859,66 +890,6 @@ class ModelViewer(QOpenGLWidget):
 
     
         
-    def draw_hover_point(self):
-        """Draw hover point with surface normal indication."""
-        if self.hover_point is None:
-            return
-
-        try:
-            glPushAttrib(GL_ALL_ATTRIB_BITS)
-            
-            # Get surface normal at hover point
-            normal = self.get_surface_normal_at_point(self.hover_point)
-            
-            # Draw normal vector
-            if normal is not None:
-                glDisable(GL_LIGHTING)
-                glColor4f(0.0, 1.0, 0.0, 1.0)
-                glBegin(GL_LINES)
-                glVertex3f(*self.hover_point)
-                end_point = self.hover_point + normal * 0.2  # Normal vector length
-                glVertex3f(*end_point)
-                glEnd()
-
-            # Draw hover point
-            glDisable(GL_DEPTH_TEST)
-            glEnable(GL_BLEND)
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-            
-            # Draw point highlight
-            glPointSize(self.point_size + 4)
-            glColor4f(0.0, 1.0, 0.0, 0.4)
-            glBegin(GL_POINTS)
-            glVertex3f(*self.hover_point)
-            glEnd()
-            
-            # Draw coordinate info
-            screen_pos = self.world_to_screen(self.hover_point)
-            if screen_pos:
-                painter = QPainter(self)
-                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                
-                # Draw crosshair
-                painter.setPen(QColor(0, 255, 0))
-                x, y = screen_pos
-                size = 10
-                painter.drawLine(x - size, y, x + size, y)
-                painter.drawLine(x, y - size, x, y + size)
-                
-                # Draw coordinates in real-world units
-                if self.use_model_coordinates:
-                    coords = self.model_handler.transform_to_model_space(self.hover_point)
-                    coords = [c * self.model_handler.unit_scale for c in coords]
-                    text = f"({coords[0]:.2f}m, {coords[1]:.2f}m, {coords[2]:.2f}m)"
-                    painter.drawText(x + 15, y - 15, text)
-                
-                painter.end()
-            
-            glPopAttrib()
-
-        except Exception as e:
-            print(f"Error drawing hover point: {e}")
-
     def get_surface_normal_at_point(self, point):
         """Calculate surface normal at given point."""
         if not self.model_handler or not self.model_handler.is_loaded:

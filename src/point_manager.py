@@ -105,6 +105,7 @@ class PointManager:
             # Convert coordinates
             try:
                 normalized_coords = tuple(map(float, coordinates))
+
                 model_coords = tuple(self.model_handler.transform_to_model_space(coordinates))
             except Exception as e:
                 print(f"Error converting coordinates: {e}")

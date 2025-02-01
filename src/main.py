@@ -12,7 +12,7 @@ def setup_environment():
     This function sets up the environment for the application. This includes
     setting the OpenGL platform for MacOS and adding the application's path
     to the system path.
-
+ ̰
     :return: None
     """
     # Set OpenGL platform for MacOS

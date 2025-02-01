@@ -271,29 +271,48 @@ class ModelHandler:
         except Exception as e:
             print(f"Error detecting floors: {e}")
             return []
-
-    def transform_to_model_space(self, coords: np.ndarray) -> np.ndarray:
-        """Enhanced coordinate transformation with proper scaling."""
+        
+    def transform_to_model_space(self, coords):
+        """Transform coordinates from normalized to model space."""
         if not self.is_loaded:
             return coords
         try:
             coords = np.array(coords, dtype=float)
-
-            # Apply inverse normalization
+            
+            # Undo normalization scale
             coords = coords / self.scale_factor
-
-            # Transform to model space
+            
+            # Add back the model center
             coords = coords + self.original_center
-
-            # Convert to meters and apply grid snapping if enabled
+            
+            # Convert to meters
             coords = coords * self.unit_scale
-            if self.grid_scale > 0:
-                coords = np.round(coords / self.grid_scale) * self.grid_scale
-
+            
             return coords
         except Exception as e:
-            print(f"Error transforming coordinates: {e}")
-            return np.array(coords, dtype=float)
+            print(f"Error transforming to model space: {e}")
+            return coords
+    def transform_to_normalized_space(self, coords):
+        """Transform coordinates from real-world to normalized space."""
+        if not self.is_loaded:
+            return coords
+        try:
+            coords = np.array(coords, dtype=float)
+            
+            # First remove unit scale since coords are in meters
+            coords = coords / self.unit_scale
+            
+            # Center the coordinates 
+            coords = coords - self.original_center
+            
+            # Finally apply the normalization scale
+            coords = coords * self.scale_factor
+            
+            return coords
+        except Exception as e:
+            print(f"Error transforming coordinates to normalized space: {e}")
+            return coords
+    
 
     def get_surface_normal_at_point(self, point: np.ndarray) -> Optional[np.ndarray]:
         """Calculate surface normal at given point."""
