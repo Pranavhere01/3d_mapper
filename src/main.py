@@ -21,7 +21,7 @@ def setup_environment():
         # on MacOS.
         os.environ['PYOPENGL_PLATFORM'] = 'darwin'
 
-    if sys.platform == 'win32':
+    elif sys.platform == 'win32':
         # Set the platform to 'win32' to allow for a window to be created
         # on Windows.
         os.environ['PYOPENGL_PLATFORM'] = 'win32'
